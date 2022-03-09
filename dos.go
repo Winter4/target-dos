@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -44,20 +46,41 @@ func getURL() string {
 	return "http://" + input
 }
 
-func launchThread(url string, index int, ch chan int) {
+func launchThread(url string, index int, ch chan [2]string) {
 
+	arr := [2]string{}
 	for {
-		time.Sleep(time.Millisecond * 1000)
-
 		res, err := http.Get(url)
 
+		arr[0] = strconv.Itoa(index)
 		if err != nil {
 			log.Println(" Error on getting response in ", index, " thread")
-			log.Fatal(err)
+			log.Println(err)
+
+			arr[1] = strconv.Itoa(-1)
 		} else {
-			ch <- index
-			ch <- res.StatusCode
+			arr[1] = strconv.Itoa(res.StatusCode)
 		}
+
+		ch <- arr
+	}
+}
+
+func printMatrix(info [][]int) {
+
+	for i := range info {
+		log.Println("  |  Thread: ", i+1, "  Status: ", info[i][1])
+	}
+}
+
+func handleResponse(ch chan [2]string, info [][]int) {
+
+	for range ch {
+		arr := <-ch
+		i, _ := strconv.Atoi(arr[0])
+		code, _ := strconv.Atoi(arr[1])
+
+		info[i][1] = code
 	}
 }
 
@@ -65,13 +88,28 @@ func main() {
 
 	url := getURL()
 	clearTerminal()
-	println("\tCurrent URL: ", url)
 
-	ch := make(chan int)
+	ch := make(chan [2]string)
 
-	go launchThread(url, 0, ch)
+	// info matrix allocating
+	threadsNum := runtime.NumCPU() * 5
+	info := make([][]int, threadsNum)
+	for i := 0; i < threadsNum; i++ {
+		info[i] = make([]int, 2)
+		info[i][0] = i
 
-	for i := range ch {
-		log.Println(" |  Thread:", i, " Status:", <-ch)
+		go launchThread(url, i, ch)
+	}
+
+	// ________________________________________
+
+	// main loop
+	go handleResponse(ch, info)
+	for {
+		clearTerminal()
+		println("\tCurrent URL: ", url)
+		printMatrix(info)
+
+		time.Sleep(time.Second * 2)
 	}
 }
